@@ -239,26 +239,17 @@
     document.getElementById("process-result").style.display = "none";
     document.getElementById("reader-wrapper").style.display = "block";
 
-    // 重要：清掉舊 scanner，重設狀態
     if (scanner) {
       try {
-        scanner.clear();   // 釋放舊的 UI 與資源
+        scanner.clear();
       } catch (e) {
         console.warn("scanner.clear() failed", e);
       }
     }
     scannerStopped = false;
     scanner = null;
-
-    // 重新建立新的掃描器
     startScanner();
   }
-
-  window.navigateToPendingUrl = function () {
-    if (pendingUrl) {
-      window.open(pendingUrl, "_blank", "noopener,noreferrer");
-    }
-  };
 
   function handleUrlMode(decodedText) {
     stopScanner(function () {
@@ -266,13 +257,21 @@
         pendingUrl = decodedText;
         showResultPanel(decodedText);
         document.getElementById("result-actions").innerHTML =
-          '<button class="btn btn-primary" onclick="navigateToPendingUrl()">前往網址</button>' +
-          '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+          '<button id="btn-open-url" class="btn btn-primary">前往網址</button>' +
+          '<button id="btn-restart" class="btn btn-secondary">再次掃描</button>';
+
+        document.getElementById("btn-open-url").addEventListener("click", function () {
+          window.open(pendingUrl, "_blank", "noopener,noreferrer");
+        });
+        document.getElementById("btn-restart").addEventListener("click", restartScan);
+
       } else {
         pendingUrl = null;
         showResultPanel(decodedText);
         document.getElementById("result-actions").innerHTML =
-          '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+          '<button id="btn-restart" class="btn btn-secondary">再次掃描</button>';
+        document.getElementById("btn-restart").addEventListener("click", restartScan);
+
         var pr = document.getElementById("process-result");
         pr.textContent = "⚠️ 掃描內容非合法網址，已阻擋跳轉。";
         pr.className = "error";
@@ -285,17 +284,11 @@
     stopScanner(function () {
       showResultPanel(decodedText);
       document.getElementById("result-actions").innerHTML =
-        '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
-      // 原本的送後端功能已註解掉
-      /*
-      document.getElementById("result-actions").innerHTML =
-        '<button class="btn btn-primary" onclick="sendToBackend()">送出驗證</button>' +
-        '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
-      */
+        '<button id="btn-restart" class="btn btn-secondary">再次掃描</button>';
+      document.getElementById("btn-restart").addEventListener("click", restartScan);
     });
   }
 
-  // --- 顯示結果區塊 ---
   function showResultPanel(text) {
     document.getElementById("reader-wrapper").style.display = "none";
     document.getElementById("result-text").textContent = text;
