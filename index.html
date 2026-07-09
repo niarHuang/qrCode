@@ -239,7 +239,18 @@
     document.getElementById("process-result").style.display = "none";
     document.getElementById("reader-wrapper").style.display = "block";
 
+    // 重要：清掉舊 scanner，重設狀態
+    if (scanner) {
+      try {
+        scanner.clear();   // 釋放舊的 UI 與資源
+      } catch (e) {
+        console.warn("scanner.clear() failed", e);
+      }
+    }
     scannerStopped = false;
+    scanner = null;
+
+    // 重新建立新的掃描器
     startScanner();
   }
 
