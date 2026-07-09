@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>QR Code 掃描</title>
+<style>
+ * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    background-color: #f5f5f5;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+  }
+
+  h1 {
+    font-size: 20px;
+    color: #333;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+
+  #mode-badge {
+    font-size: 12px;
+    background-color: #1a73e8;
+    color: #fff;
+    padding: 3px 10px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+  }
+
+  #reader-wrapper {
+    width: 100%;
+    max-width: 400px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    overflow: hidden;
+    padding: 16px;
+  }
+
+  #reader {
+    width: 100%;
+  }
+
+  /* 覆蓋 html5-qrcode 預設樣式使其更友善 */
+  #reader__scan_region {
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  #reader__dashboard_section_swaplink {
+    font-size: 13px;
+  }
+
+  #result-container {
+    width: 100%;
+    max-width: 400px;
+    margin-top: 16px;
+    display: none;
+  }
+
+  #result-box {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+    padding: 16px;
+  }
+
+  #result-box h2 {
+    font-size: 15px;
+    color: #555;
+    margin-bottom: 10px;
+  }
+
+  #result-text {
+    font-size: 15px;
+    color: #222;
+    word-break: break-all;
+    white-space: pre-wrap;
+    background: #f9f9f9;
+    border-radius: 8px;
+    padding: 10px;
+    min-height: 48px;
+  }
+
+  #result-actions {
+    margin-top: 12px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    flex: 1;
+    min-width: 100px;
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    font-size: 14px;
+    cursor: pointer;
+    text-align: center;
+    text-decoration: none;
+    display: inline-block;
+    touch-action: manipulation;        /* 消除 300ms 點擊延遲 */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .btn-primary {
+    background-color: #1a73e8;
+    color: #fff;
+  }
+
+  .btn-secondary {
+    background-color: #e8eaed;
+    color: #333;
+  }
+
+  /* Result for scenario 2 (data) */
+  #process-result {
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    font-size: 14px;
+    display: none;
+  }
+
+  #process-result.success {
+    background-color: #e6f4ea;
+    color: #1e7e34;
+  }
+
+  #process-result.error {
+    background-color: #fce8e6;
+    color: #c62828;
+  }
+
+  .spinner {
+    display: none;
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #1a73e8;
+    border-radius: 50%;
+    width: 22px;
+    height: 22px;
+    animation: spin 0.8s linear infinite;
+    margin: 8px auto;
+  }
+
+  @keyframes spin {
+    0%  { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  #error-msg {
+    color: #c62828;
+    font-size: 13px;
+    text-align: center;
+    margin-top: 10px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+
+<h1>QR Code 掃描</h1>
+<div id="mode-badge"></div>
+
+<div id="reader-wrapper">
+  <div id="reader"></div>
+  <p id="error-msg"></p>
+</div>
+
+<div id="result-container">
+  <div id="result-box">
+    <h2>掃描結果</h2>
+    <div id="result-text"></div>
+    <div class="spinner" id="spinner"></div>
+    <div id="process-result"></div>
+    <div id="result-actions"></div>
+  </div>
+</div>
+
+<script src="html5-qrcode.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // --- 從網址讀取 mode 參數 ---
+  var params = new URLSearchParams(window.location.search);
+  var MODE = params.get("mode") || "url";
+  if (MODE !== "url" && MODE !== "data") {
+    MODE = "url";
+  }
+
+  // 顯示模式徽章
+  var badge = document.getElementById("mode-badge");
+  badge.textContent = MODE === "url" ? "模式：掃描網址並跳轉" : "模式：掃描資料並顯示";
+
+  var scanner = null;
+  var scannerStopped = false;
+  var pendingUrl = null;
+
+  function isSafeUrl(str) {
+    try {
+      var url = new URL(str);
+      return url.protocol === "http:" || url.protocol === "https:";
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function showError(msg) {
+    var el = document.getElementById("error-msg");
+    el.textContent = msg;
+    el.style.display = "block";
+  }
+
+  function stopScanner(callback) {
+    if (scanner && !scannerStopped) {
+      scannerStopped = true;
+      scanner.stop().then(function () {
+        if (callback) callback();
+      }).catch(function () {
+        if (callback) callback();
+      });
+    } else {
+      if (callback) callback();
+    }
+  }
+
+  function restartScan() {
+    pendingUrl = null;
+    document.getElementById("result-container").style.display = "none";
+    document.getElementById("error-msg").style.display = "none";
+    document.getElementById("process-result").style.display = "none";
+    document.getElementById("reader-wrapper").style.display = "block";
+
+    scannerStopped = false;
+    startScanner();
+  }
+
+  window.navigateToPendingUrl = function () {
+    if (pendingUrl) {
+      window.open(pendingUrl, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  function handleUrlMode(decodedText) {
+    stopScanner(function () {
+      if (isSafeUrl(decodedText)) {
+        pendingUrl = decodedText;
+        showResultPanel(decodedText);
+        document.getElementById("result-actions").innerHTML =
+          '<button class="btn btn-primary" onclick="navigateToPendingUrl()">前往網址</button>' +
+          '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+      } else {
+        pendingUrl = null;
+        showResultPanel(decodedText);
+        document.getElementById("result-actions").innerHTML =
+          '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+        var pr = document.getElementById("process-result");
+        pr.textContent = "⚠️ 掃描內容非合法網址，已阻擋跳轉。";
+        pr.className = "error";
+        pr.style.display = "block";
+      }
+    });
+  }
+
+  function handleDataMode(decodedText) {
+    stopScanner(function () {
+      showResultPanel(decodedText);
+      document.getElementById("result-actions").innerHTML =
+        '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+      // 原本的送後端功能已註解掉
+      /*
+      document.getElementById("result-actions").innerHTML =
+        '<button class="btn btn-primary" onclick="sendToBackend()">送出驗證</button>' +
+        '<button class="btn btn-secondary" onclick="restartScan()">再次掃描</button>';
+      */
+    });
+  }
+
+  // --- 顯示結果區塊 ---
+  function showResultPanel(text) {
+    document.getElementById("reader-wrapper").style.display = "none";
+    document.getElementById("result-text").textContent = text;
+    document.getElementById("result-container").style.display = "block";
+  }
+
+  function onScanSuccess(decodedText) {
+    if (MODE === "url") {
+      handleUrlMode(decodedText);
+    } else {
+      handleDataMode(decodedText);
+    }
+  }
+
+  function startScanner() {
+    scanner = new Html5QrcodeScanner(
+      "reader",
+      {
+        fps: 10,
+        qrbox: { width: 260, height: 260 },
+        rememberLastUsedCamera: true,
+        aspectRatio: 1.0,
+        showTorchButtonIfSupported: true
+      },
+      false
+    );
+    scanner.render(onScanSuccess, function (errorMsg) {
+      // 掃描失敗訊息不顯示
+    });
+  }
+
+  window.addEventListener("pagehide", function () {
+    stopScanner(null);
+  });
+  window.addEventListener("beforeunload", function () {
+    stopScanner(null);
+  });
+
+  startScanner();
+
+})();
+</script>
+</body>
+</html>
